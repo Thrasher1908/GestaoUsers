@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gestão de Utilizadores</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f3f4f6; padding: 24px; color: #111; }
+    h1 { text-align: center; color: #1f2937; margin-bottom: 18px; }
+    section { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.07); }
+    label { display:block; margin-top:8px; font-weight:600; }
+    input { width: 100%; padding: 8px; margin-top:6px; box-sizing: border-box; border:1px solid #d1d5db; border-radius:6px; }
+    button { margin-top:10px; padding:8px 12px; background:#2563eb; color:white; border:none; border-radius:6px; cursor:pointer; }
+    button:hover { background:#1e40af; }
+    #output { white-space: pre-line; background: #eef2ff; padding: 10px; border-radius: 8px; min-height:28px; margin-top:8px; }
+    #lista_utilizadores ul { padding-left:18px; margin:0; }
+    .util-row { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+    .util-name { font-weight:700; min-width:140px; }
+    .util-pass { font-family: monospace; background:#f8fafc; padding:6px 8px; border-radius:6px; border:1px solid #e6e9ef; }
+    .small-btn { padding:6px 8px; background:#06b6d4; color:white; border-radius:6px; border:none; cursor:pointer; }
+    .danger { background:#ef4444; }
+    .muted { color:#6b7280; font-size:0.95em; }
+    .controls { display:flex; gap:8px; margin-top:8px; }
+    footer { text-align:center; color:#6b7280; font-size:0.9em; margin-top:14px; }
+  </style>
+</head>
+<body>
+  <h1>Gestão de Utilizadores</h1>
+
+  <section aria-labelledby="sec-add">
+    <h3 id="sec-add">Adicionar Utilizador</h3>
+    <label for="add_username">Nome de utilizador</label>
+    <input id="add_username" placeholder="Username" autocomplete="username">
+    <label for="add_password">Password</label>
+    <input id="add_password" type="password" placeholder="Password" autocomplete="new-password">
+    <div class="controls">
+      <button id="btn_add">Adicionar</button>
+      <button id="btn_clear_add" class="small-btn" type="button">Limpar campos</button>
+    </div>
+    <div id="add_note" class="muted">As passwords são guardadas localmente no teu navegador e aparecem ocultas na lista.</div>
+  </section>
+
+  <section aria-labelledby="sec-search">
+    <h3 id="sec-search">Pesquisar</h3>
+    <label for="search_term">Procurar username</label>
+    <input id="search_term" placeholder="Parte do username">
+    <div class="controls">
+      <button id="btn_search">Pesquisar</button>
+      <button id="btn_listar" class="small-btn" type="button">Atualizar lista</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="sec-edit">
+    <h3 id="sec-edit">Editar Password</h3>
+    <label for="edit_username">Nome de utilizador</label>
+    <input id="edit_username" placeholder="Username">
+    <label for="edit_password">Nova password</label>
+    <input id="edit_password" type="password" placeholder="Nova password">
+    <div class="controls">
+      <button id="btn_edit">Atualizar</button>
+      <button id="btn_clear_edit" class="small-btn" type="button">Limpar campos</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="sec-remove">
+    <h3 id="sec-remove">Remover Utilizador</h3>
+    <label for="remove_username">Nome de utilizador</label>
+    <input id="remove_username" placeholder="Username">
+    <div class="controls">
+      <button id="btn_remove" class="danger">Remover</button>
+      <button id="btn_clear_remove" class="small-btn" type="button">Limpar</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="sec-list">
+    <h3 id="sec-list">Lista de Utilizadores</h3>
+    <div id="lista_utilizadores" class="muted"></div>
+  </section>
+
+  <h3>Saída / Mensagens</h3>
+  <div id="output" aria-live="polite"></div>
+
+  <footer>
+    Ficheiro local • Dados guardados em <code>localStorage</code> do navegador.
+  </footer>
+
+<script>
+(function () {
+  'use strict';
+
+  const STORAGE_KEY = 'gestao_utilizadores_db_v1';
+
+  // Utilitários
+  function $(id) { return document.getElementById(id); }
+  function show(msg) { const out = $('output'); out.textContent = msg; console.log(msg); }
+  function maskPass(pw) { if (!pw) return ''; return '•'.repeat(Math.max(6, String(pw).length)); }
+  function avaliarPassword(password) {
+    if (typeof password !== 'string') return 'Fraca';
+    if (password.length < 8) return 'Fraca';
+    const hasUpper = /[A-Z]/.test(password);
+    const hasLower = /[a-z]/.test(password);
+    const hasDigit = /\d/.test(password);
+    const hasSymbol = /[!@#\$%&\*]/.test(password);
+    const score = [hasUpper, hasLower, hasDigit, hasSymbol].filter(Boolean).length;
+    if (score === 4) return 'Forte';
+    if (score >= 2) return 'Média';
+    return 'Fraca';
+  }
+
+  // Carregar / Guardar
+  function loadDB() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        // Valores iniciais
+        const seed = { nicolau: 'cesae123', carla: 'cesae*123', diogo: '98745' };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+        return seed;
+      }
+      return JSON.parse(raw);
+    } catch (e) {
+      console.error('Erro a carregar base de dados:', e);
+      return {};
+    }
+  }
+
+  function saveDB(db) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  }
+
+  // Atualizar interface da lista
+  function atualizarLista() {
+    const listaDiv = $('lista_utilizadores');
+    const db = loadDB();
+    const keys = Object.keys(db).sort();
+    if (keys.length === 0) {
+      listaDiv.innerHTML = '<i>Nenhum utilizador registado.</i>';
+      return;
+    }
+    const container = document.createElement('div');
+    keys.forEach(k => {
+      const row = document.createElement('div');
+      row.className = 'util-row';
+      const name = document.createElement('div');
+      name.className = 'util-name';
+      name.textContent = k;
+      const pass = document.createElement('div');
+      pass.className = 'util-pass';
+      pass.textContent = maskPass(db[k]);
+      pass.title = 'Password guardada (oculta)';
+      // botão mostrar temporariamente
+      const btnShow = document.createElement('button');
+      btnShow.className = 'small-btn';
+      btnShow.type = 'button';
+      btnShow.textContent = 'Mostrar';
+      btnShow.onclick = function () {
+        // mostra durante 3 segundos
+        pass.textContent = db[k];
+        setTimeout(() => { pass.textContent = maskPass(db[k]); }, 3000);
+      };
+      // copiar username
+      const btnCopy = document.createElement('button');
+      btnCopy.className = 'small-btn';
+      btnCopy.type = 'button';
+      btnCopy.textContent = 'Copiar';
+      btnCopy.onclick = function () {
+        navigator.clipboard && navigator.clipboard.writeText(k).then(()=> show('Nome de utilizador copiado para o clipboard.'));
+      };
+      // popular edit fields on click
+      const btnUseEdit = document.createElement('button');
+      btnUseEdit.className = 'small-btn';
+      btnUseEdit.type = 'button';
+      btnUseEdit.textContent = 'Editar';
+      btnUseEdit.onclick = function () {
+        $('edit_username').value = k;
+        $('edit_password').value = '';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        show('Preenche a nova password e clica Atualizar.');
+      };
+
+      row.appendChild(name);
+      row.appendChild(pass);
+      row.appendChild(btnShow);
+      row.appendChild(btnUseEdit);
+      row.appendChild(btnCopy);
+
+      container.appendChild(row);
+    });
+    listaDiv.innerHTML = '';
+    listaDiv.appendChild(container);
+  }
+
+  // Operações
+  function adicionarUtilizador() {
+    try {
+      const u = $('add_username').value.trim().toLowerCase();
+      const p = $('add_password').value;
+      if (!u || !p) { show('❌ Preenche o nome e a password.'); return; }
+      const db = loadDB();
+      if (db.hasOwnProperty(u)) { show('⚠️ O username já existe.'); return; }
+      db[u] = p;
+      saveDB(db);
+      atualizarLista();
+      show(`✅ Utilizador "${u}" adicionado. Força: ${avaliarPassword(p)}`);
+      $('add_username').value = '';
+      $('add_password').value = '';
+    } catch (e) { console.error(e); show('Erro ao adicionar utilizador: ' + e.message); }
+  }
+
+  function pesquisarUtilizador() {
+    try {
+      const termo = $('search_term').value.trim().toLowerCase();
+      const db = loadDB();
+      const resultados = Object.keys(db).filter(k => k.includes(termo));
+      if (resultados.length === 0) { show('Nenhum utilizador encontrado.'); return; }
+      show('🔍 Encontrados:\n' + resultados.join('\n'));
+    } catch (e) { console.error(e); show('Erro na pesquisa: ' + e.message); }
+  }
+
+  function editarUtilizador() {
+    try {
+      const u = $('edit_username').value.trim().toLowerCase();
+      const nova = $('edit_password').value;
+      if (!u) { show('❌ Indica o username a editar.'); return; }
+      const db = loadDB();
+      if (!db.hasOwnProperty(u)) { show('❌ Utilizador não encontrado.'); return; }
+      db[u] = nova;
+      saveDB(db);
+      atualizarLista();
+      show(`✏️ Password de "${u}" atualizada. Força: ${avaliarPassword(nova)}`);
+      $('edit_username').value = '';
+      $('edit_password').value = '';
+    } catch (e) { console.error(e); show('Erro ao editar: ' + e.message); }
+  }
+
+  function removerUtilizador() {
+    try {
+      const u = $('remove_username').value.trim().toLowerCase();
+      if (!u) { show('❌ Indica o username a remover.'); return; }
+      const db = loadDB();
+      if (!db.hasOwnProperty(u)) { show('❌ Utilizador não encontrado.'); return; }
+      if (!confirm(`Tem a certeza que deseja remover "${u}"?`)) return;
+      delete db[u];
+      saveDB(db);
+      atualizarLista();
+      show(`🗑️ Utilizador "${u}" removido.`);
+      $('remove_username').value = '';
+    } catch (e) { console.error(e); show('Erro ao remover: ' + e.message); }
+  }
+
+  // Clear helpers
+  function clearAdd() { $('add_username').value=''; $('add_password').value=''; }
+  function clearEdit() { $('edit_username').value=''; $('edit_password').value=''; }
+  function clearRemove() { $('remove_username').value=''; }
+
+  // Ligação de eventos
+  document.addEventListener('DOMContentLoaded', atualizarLista);
+  $('btn_add').addEventListener('click', adicionarUtilizador);
+  $('btn_search').addEventListener('click', pesquisarUtilizador);
+  $('btn_edit').addEventListener('click', editarUtilizador);
+  $('btn_remove').addEventListener('click', removerUtilizador);
+  $('btn_listar').addEventListener('click', atualizarLista);
+  $('btn_clear_add').addEventListener('click', clearAdd);
+  $('btn_clear_edit').addEventListener('click', clearEdit);
+  $('btn_clear_remove').addEventListener('click', clearRemove);
+
+  // Inicial
+  atualizarLista();
+  show('💡 Gestão de utilizadores carregada. Dados guardados localmente.');
+
+})(); 
+</script>
+</body>
+</html>
